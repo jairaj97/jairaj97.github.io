@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Release Triage — DevOps Fieldnotes by Jairaj Rao</title>
+  <meta name="description" content="A practical release troubleshooting guide for Docker builds, Azure Container Registry image pulls, Kubernetes rollouts, and service traffic.">
+  <meta name="theme-color" content="#f6f4ee"><link rel="canonical" href="https://jairaj97.github.io/release-triage.html">
+  <link rel="icon" type="image/svg+xml" href="/lab-mark.svg">
+  <link rel="stylesheet" href="/fieldnotes.css"><link rel="stylesheet" href="/release-triage.css">
+  <script src="/release-triage.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="header wrap">
+  <a class="brand" href="/" aria-label="DevOps Fieldnotes home"><span class="mark">jr<span>↗</span></span><span>DEVOPS<br><b>FIELDNOTES</b></span></a>
+  <nav aria-label="Main navigation"><a href="/" class="home-link">Home</a><a href="#stages">The checks</a><a href="#references">Sources</a><a class="portfolio-link" href="https://jai-portfolio-c25.pages.dev/">Portfolio <span aria-hidden="true">↗</span></a></nav>
+</header>
+<main id="main">
+  <section class="guide-hero wrap" aria-labelledby="guide-title">
+    <div><p class="eyebrow"><span class="dot"></span> FIELD GUIDE / 001</p><h1 id="guide-title">Find the broken<br><em>handoff.</em></h1><p class="lead">A release can fail while building an image, finding it in a registry, starting a workload, or routing traffic. Start with the first stage that failed, then follow the evidence.</p><a class="button" href="#stages">Start the checks <span aria-hidden="true">↘</span></a></div>
+    <div class="guide-map" aria-label="Build, image, rollout, and traffic stages">
+      <span class="tiny">THE RELEASE PATH</span>
+      <ol><li><b>01</b><span>Build</span><small>Does the artifact exist?</small></li><li><b>02</b><span>Image</span><small>Can the cluster pull that tag?</small></li><li><b>03</b><span>Rollout</span><small>Is the workload ready?</small></li><li><b>04</b><span>Traffic</span><small>Can a request reach it?</small></li></ol>
+      <p>Move forward only when the previous handoff is verified.</p>
+    </div>
+  </section>
+  <div class="index-strip"><div class="wrap"><span>READ THE FIRST FAILURE</span><span>RUN A CHECK</span><span>INTERPRET THE RESULT</span><span>VERIFY THE SAME RELEASE ↗</span></div></div>
+  <section class="wrap guide-intro" aria-labelledby="before-title"><div><p class="eyebrow">BEFORE YOU START</p><h2 id="before-title">Keep the comparison exact.</h2></div><div><p>Use the same build ID or image tag throughout the investigation. Replace the angle-bracket placeholders with your own names. Confirm your current Kubernetes context and namespace before running commands.</p><pre><code>kubectl config current-context
+kubectl get deployment -n &lt;namespace&gt;</code></pre><p class="small-note">The examples use Docker, Azure Container Registry, and Kubernetes. They do not change your application Deployment. The ACR connectivity check may create a temporary diagnostic workload. Check application-specific health paths and ports in your manifests.</p></div></section>
+  <section class="wrap guide-section" id="stages" aria-labelledby="stages-title">
+    <div class="section-heading"><div><p class="eyebrow">THE WORKFLOW</p><h2 id="stages-title">Where did it stop?</h2></div><p>Choose the earliest failed handoff. Each check tells you what to inspect next.</p></div>
+    <nav class="stage-tabs" aria-label="Release failure stage">
+      <a href="#build" data-stage-tab="build"><span>01</span><b>Build</b><small>Dockerfile or context</small></a>
+      <a href="#image" data-stage-tab="image"><span>02</span><b>Image</b><small>Tag or registry pull</small></a>
+      <a href="#rollout" data-stage-tab="rollout"><span>03</span><b>Rollout</b><small>Pod startup or probes</small></a>
+      <a href="#traffic" data-stage-tab="traffic"><span>04</span><b>Traffic</b><small>Service or endpoint</small></a>
+    </nav>
+
+    <section class="stage-panel" id="build" data-stage-panel="build" aria-labelledby="build-title">
+      <div class="stage-heading"><span class="tiny">01 / BUILD</span><h3 id="build-title">The image never built.</h3><p>Start with the first failing build step, not the last summary line in the pipeline.</p><span class="progress" data-progress aria-live="polite">0 of 3 checks reviewed</span></div>
+      <div class="checks">
+        <article class="check"><div class="check-top"><span>CHECK 01</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>Reproduce with the intended context.</h4><p>Run from the repository root, or use the same context path as the pipeline.</p><div class="command"><pre><code>docker build --progress=plain -t release-check .</code></pre><button type="button" data-copy aria-label="Copy local Docker build command">Copy</button></div><p class="readout"><b>Read the result:</b> A missing file in <code>COPY</code> points to path, context, or <code>.dockerignore</code>. A restore or package error is a different build step; inspect that step's input and exit code.</p></article>
+        <article class="check"><div class="check-top"><span>CHECK 02</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>Compare the Dockerfile path with the build context.</h4><p>Docker can only copy files made available in the selected context. Inspect the paths referenced in <code>COPY</code> and the ignore file before changing the pipeline.</p><div class="command"><pre><code>docker build --progress=plain -f &lt;Dockerfile-path&gt; -t release-check &lt;context-path&gt;</code></pre><button type="button" data-copy aria-label="Copy build context comparison command">Copy</button></div><p class="readout"><b>Read the result:</b> If this succeeds with a corrected context, align the pipeline's Dockerfile and context inputs. Do not treat an image push as the cause of a failed local build.</p></article>
+        <article class="check"><div class="check-top"><span>CHECK 03</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>Confirm the build completed before chasing deployment.</h4><p>Find the successful build step and the exact tag intended for this run in the pipeline logs. A locally built image proves the Docker build path; it does not prove the registry received the image.</p><p class="readout"><b>Next handoff:</b> If build succeeds but deployment cannot find or pull the tag, move to <a href="#image" data-jump="image">Image checks →</a></p></article>
+      </div>
+    </section>
+
+    <section class="stage-panel" id="image" data-stage-panel="image" aria-labelledby="image-title">
+      <div class="stage-heading"><span class="tiny">02 / IMAGE</span><h3 id="image-title">The image is missing or cannot be pulled.</h3><p>Separate a missing tag from authentication and network errors. Pod events give the strongest first clue.</p><span class="progress" data-progress aria-live="polite">0 of 3 checks reviewed</span></div>
+      <div class="checks">
+        <article class="check"><div class="check-top"><span>CHECK 01</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>Compare the deployed image with the pushed tag.</h4><div class="command"><pre><code>kubectl get deployment &lt;deployment&gt; -n &lt;namespace&gt; -o jsonpath="{.spec.template.spec.containers[*].image}"
+az acr repository show-tags --name &lt;registry&gt; --repository &lt;repository&gt; --output table</code></pre><button type="button" data-copy aria-label="Copy image and ACR tag inspection commands">Copy</button></div><p class="readout"><b>Read the result:</b> The full registry, repository, and tag must match. A tag absent from ACR points back to publishing or substitution, even if the Docker build passed.</p></article>
+        <article class="check"><div class="check-top"><span>CHECK 02</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>Read the Pod's pull event.</h4><div class="command"><pre><code>kubectl get pods -n &lt;namespace&gt;
+kubectl describe pod &lt;pod&gt; -n &lt;namespace&gt;</code></pre><button type="button" data-copy aria-label="Copy Pod event commands">Copy</button></div><p class="readout"><b>Read the result:</b> <code>manifest unknown</code> suggests a missing tag; <code>401</code> or <code>403</code> suggests authorization; timeouts suggest network or DNS. <code>no match for platform</code> points to image architecture.</p></article>
+        <article class="check"><div class="check-top"><span>CHECK 03</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>Test AKS-to-ACR access when the event points there.</h4><div class="command"><pre><code>az aks check-acr --resource-group &lt;aks-resource-group&gt; --name &lt;cluster&gt; --acr &lt;registry&gt;.azurecr.io</code></pre><button type="button" data-copy aria-label="Copy AKS ACR connectivity check">Copy</button></div><p class="readout"><b>Read the result:</b> This checks the cluster's ACR access path, not whether a specific image tag exists. Check the kubelet identity's appropriate registry role (<code>AcrPull</code> for a non-ABAC registry) only when authorization is implicated.</p><p class="next-link">If the image pulls and the pod still fails, continue with <a href="#rollout" data-jump="rollout">Rollout checks →</a></p></article>
+      </div>
+    </section>
+
+    <section class="stage-panel" id="rollout" data-stage-panel="rollout" aria-labelledby="rollout-title">
+      <div class="stage-heading"><span class="tiny">03 / ROLLOUT</span><h3 id="rollout-title">The Pod starts but never becomes ready.</h3><p>Check the rollout, then Pod conditions, events, and application logs.</p><span class="progress" data-progress aria-live="polite">0 of 3 checks reviewed</span></div>
+      <div class="checks">
+        <article class="check"><div class="check-top"><span>CHECK 01</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>Check what the Deployment is waiting for.</h4><div class="command"><pre><code>kubectl rollout status deployment/&lt;deployment&gt; -n &lt;namespace&gt; --timeout=180s
+kubectl get pods -n &lt;namespace&gt; -o wide</code></pre><button type="button" data-copy aria-label="Copy rollout and Pod status commands">Copy</button></div><p class="readout"><b>Read the result:</b> A rollout timeout tells you new replicas did not become available in time. It does not identify whether the cause is a crash, probe, image, resource, or scheduling issue.</p></article>
+        <article class="check"><div class="check-top"><span>CHECK 02</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>Inspect events and probe failures.</h4><div class="command"><pre><code>kubectl describe pod &lt;pod&gt; -n &lt;namespace&gt;</code></pre><button type="button" data-copy aria-label="Copy Pod description command">Copy</button></div><p class="readout"><b>Read the result:</b> Look for failing readiness or startup probes, restarts, OOM kills, scheduling constraints, and missing configuration. A readiness failure keeps traffic away; a liveness failure can restart the container.</p></article>
+        <article class="check"><div class="check-top"><span>CHECK 03</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>Read the current or previous container logs.</h4><div class="command"><pre><code>kubectl logs &lt;pod&gt; -n &lt;namespace&gt;
+kubectl logs &lt;pod&gt; -n &lt;namespace&gt; --previous</code></pre><button type="button" data-copy aria-label="Copy current and previous Pod log commands">Copy</button></div><p class="readout"><b>Read the result:</b> Use <code>--previous</code> after a restart; it may have no logs if the container has not restarted. Compare the app's listen port and health path with the probe configuration before changing thresholds.</p><p class="next-link">If pods are ready but users cannot reach the app, go to <a href="#traffic" data-jump="traffic">Traffic checks →</a></p></article>
+      </div>
+    </section>
+
+    <section class="stage-panel" id="traffic" data-stage-panel="traffic" aria-labelledby="traffic-title">
+      <div class="stage-heading"><span class="tiny">04 / TRAFFIC</span><h3 id="traffic-title">The workload is ready, but the URL fails.</h3><p>Follow the request from the Service to its ready Pod endpoints before investigating the public edge.</p><span class="progress" data-progress aria-live="polite">0 of 3 checks reviewed</span></div>
+      <div class="checks">
+        <article class="check"><div class="check-top"><span>CHECK 01</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>Inspect the Service address, selector, and ports.</h4><div class="command"><pre><code>kubectl get service &lt;service&gt; -n &lt;namespace&gt; -o wide
+kubectl describe service &lt;service&gt; -n &lt;namespace&gt;</code></pre><button type="button" data-copy aria-label="Copy Service inspection commands">Copy</button></div><p class="readout"><b>Read the result:</b> Confirm the selector matches Pod labels, the Service port maps to the app's target port, and an external address exists if this is a LoadBalancer Service.</p></article>
+        <article class="check"><div class="check-top"><span>CHECK 02</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>See whether the Service has backends.</h4><div class="command"><pre><code>kubectl get endpointslices -n &lt;namespace&gt; -l kubernetes.io/service-name=&lt;service&gt; -o yaml</code></pre><button type="button" data-copy aria-label="Copy EndpointSlice command">Copy</button></div><p class="readout"><b>Read the result:</b> Missing endpoints, or endpoints with <code>ready: false</code>, direct you back to labels and readiness. Ready endpoints move the investigation to Service ports and the external route.</p></article>
+        <article class="check"><div class="check-top"><span>CHECK 03</span><label><input type="checkbox" data-check> Reviewed</label></div><h4>Compare an internal path with the public URL.</h4><p>Run the port-forward command in one terminal, then the curl command in another. Replace the Service port and health path with your manifest's values.</p><div class="command"><pre><code>kubectl port-forward service/&lt;service&gt; -n &lt;namespace&gt; 8080:&lt;service-port&gt;</code></pre><button type="button" data-copy aria-label="Copy port-forward command">Copy</button></div><div class="command"><pre><code>curl --fail http://127.0.0.1:8080/&lt;health-path&gt;</code></pre><button type="button" data-copy aria-label="Copy local health command">Copy</button></div><p class="readout"><b>Read the result:</b> If port-forward works but the public address fails, focus on LoadBalancer, ingress, DNS, or network rules. If it fails internally too, revisit Service mapping and the app's response.</p></article>
+      </div>
+    </section>
+    <p class="guide-end">After a fix, repeat the failing check and verify the deployed image tag and user-facing health path. A green build alone does not prove the release is serving traffic.</p>
+  </section>
+  <section class="references" id="references" aria-labelledby="refs-title"><div class="wrap"><p class="eyebrow">SOURCE NOTES</p><h2 id="refs-title">Check the platform docs.</h2><p>These examples are a starting point; confirm details against the version and setup you operate. Reviewed 29 Sep 2026.</p><ul>
+    <li><a href="https://docs.docker.com/build/concepts/context/">Docker: build context ↗</a></li>
+    <li><a href="https://learn.microsoft.com/en-us/cli/azure/acr/repository#az-acr-repository-show-tags">Azure CLI: ACR tags ↗</a></li>
+    <li><a href="https://learn.microsoft.com/en-us/troubleshoot/azure/azure-kubernetes/connectivity/cannot-pull-image-from-acr-to-aks-cluster">Microsoft: AKS image pull errors ↗</a></li>
+    <li><a href="https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/">Kubernetes: debug Pods ↗</a></li>
+    <li><a href="https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/">Kubernetes: debug Services ↗</a></li>
+    <li><a href="https://kubernetes.io/docs/reference/kubectl/generated/kubectl_port-forward/">Kubernetes: port-forward ↗</a></li>
+  </ul></div></section>
+  <section class="wrap guide-footer"><div><p class="eyebrow">AN EXAMPLE IMPLEMENTATION</p><h2>See these checks in a small lab.</h2><p>The Azure AKS project shows a tagged image, rollout verification, and a public health check. It is one example of this release path.</p></div><a class="text-link" href="/#case-study">Open the AKS case study ↗</a></section>
+</main>
+<footer class="wrap"><span>© 2026 JAIRAJ RAO</span><span>DIAGNOSE → VERIFY → DOCUMENT</span><a href="/">DevOps Fieldnotes ↗</a></footer>
+</body></html>
